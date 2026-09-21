@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#060A10" />
+<title>FIRE_ALERT — Security Monitor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23060A10'/><circle cx='16' cy='16' r='7' fill='none' stroke='%2300E5FF' stroke-width='3'/></svg>" />
+<style>
+  /* ── Design tokens — ported 1:1 from the React Native StyleSheet ────────── */
+  :root {
+    --bg: #060A10;
+    --surface: #0D1521;
+    --border: #1A2740;
+    --cyan: #00E5FF;
+    --green: #10B981;
+    --red: #EF4444;
+    --text: #E2E8F0;
+    --muted: #64748B;
+    --image-bg: #0A0F18;
+    --placeholder-sub: #374151;
+    --log-divider: #111827;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+            "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { background: var(--bg); }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  /* The RN screen is a full-bleed phone layout; centre it on wide viewports
+     rather than stretching the 4:3 snapshot across a desktop monitor. */
+  .shell {
+    max-width: 600px;
+    margin: 0 auto;
+    border-inline: 1px solid var(--border);
+    min-height: 100vh;
+  }
+  @media (max-width: 601px) { .shell { border-inline: 0; } }
+
+  /* ── Header ─────────────────────────────────────────────────────────────── */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 32px 20px 16px;
+    padding-top: max(32px, env(safe-area-inset-top));
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .header-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: var(--cyan);
+  }
+  .header-sub {
+    margin: 2px 0 0;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--muted);
+  }
+  .header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-bottom: 2px;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .live-text {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--green);
+  }
+  .poll-time {
+    font-size: 9px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  /* Offline: dim the dot and grey the label, matching the RN opacity swap. */
+  .offline .live-dot { opacity: 0.2; animation: none; }
+  .offline .live-text { color: #6B7280; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+
+  /* ── Scroll body ────────────────────────────────────────────────────────── */
+  main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px 16px 40px;
+    padding-bottom: max(40px, env(safe-area-inset-bottom));
+  }
+
+  /* ── Snapshot card ──────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--cyan);
+  }
+  .card-meta {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 16px 8px;
+    padding: 5px 12px;
+    border: 1px solid;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    width: fit-content;
+  }
+
+  /* ── Snapshot image ─────────────────────────────────────────────────────── */
+  .image-container {
+    position: relative;
+    margin: 8px 16px 16px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--image-bg);
+    aspect-ratio: 4 / 3;
+  }
+  .snapshot {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    opacity: 0;
+    transition: opacity 500ms linear; /* mirrors Animated.timing duration 500 */
+  }
+  .snapshot.visible { opacity: 1; }
+
+  .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--image-bg);
+  }
+  .placeholder-icon { font-size: 36px; margin-bottom: 8px; }
+  .placeholder-text { color: var(--muted); font-size: 14px; font-weight: 600; }
+  .placeholder-sub  { color: var(--placeholder-sub); font-size: 11px; margin-top: 4px; }
+
+  /* Tactical corner brackets, shown only once a real snapshot is on screen. */
+  .corner {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border: 0 solid var(--cyan);
+    pointer-events: none;
+  }
+  .corner-tl { top: 8px;    left: 8px;  border-top-width: 2px;    border-left-width: 2px; }
+  .corner-tr { top: 8px;    right: 8px; border-top-width: 2px;    border-right-width: 2px; }
+  .corner-bl { bottom: 8px; left: 8px;  border-bottom-width: 2px; border-left-width: 2px; }
+  .corner-br { bottom: 8px; right: 8px; border-bottom-width: 2px; border-right-width: 2px; }
+
+  [hidden] { display: none !important; }
+
+  /* ── Action buttons ─────────────────────────────────────────────────────── */
+  .actions { display: flex; gap: 12px; }
+  .btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 60px;
+    padding: 18px;
+    border: 1px solid;
+    border-radius: 10px;
+    font-family: inherit;
+    color: var(--text);
+    cursor: pointer;
+    transition: opacity 150ms linear;
+  }
+  .btn:hover:not(:disabled)  { opacity: 0.75; }
+  .btn:disabled              { opacity: 0.35; cursor: not-allowed; }
+  .btn:focus-visible         { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .btn-authorise { background: #0B2318; border-color: var(--green); }
+  .btn-deny      { background: #2A0E0E; border-color: var(--red); }
+  .btn-icon  { font-size: 18px; font-weight: 800; color: #fff; }
+  .btn-label { font-weight: 800; font-size: 13px; letter-spacing: 2px; }
+
+  /* ── Result banner ──────────────────────────────────────────────────────── */
+  .banner {
+    padding: 14px;
+    border: 1px solid;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .banner-grant { background: #0B2318; border-color: var(--green); }
+  .banner-deny  { background: #2A0E0E; border-color: var(--red); }
+
+  /* ── Event log ──────────────────────────────────────────────────────────── */
+  .log-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .log-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--cyan);
+    margin-bottom: 12px;
+  }
+  .log-empty { color: var(--muted); font-size: 12px; font-style: italic; }
+  .log-entry {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 18px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--log-divider);
+    overflow-wrap: anywhere;
+  }
+  .log-entry.latest { color: var(--text); }
+
+  /* ── Info row ───────────────────────────────────────────────────────────── */
+  .info-row { display: flex; gap: 12px; }
+  .info-item {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+    min-width: 0;
+  }
+  .info-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .info-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--cyan);
+    overflow-wrap: anywhere;
+  }
+
+  /* ── Spinner (stands in for RN's ActivityIndicator) ─────────────────────── */
+  .spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 800ms linear infinite;
+    flex: none;
+  }
+  .spinner-lg { width: 18px; height: 18px; border-width: 2px; color: #fff; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot, .spinner { animation: none; }
+    .snapshot { transition: none; }
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ── Header ───────────────────────────────────────────────────────────── -->
+  <header class="header" id="header">
+    <div>
+      <h1 class="header-title">FIRE_ALERT</h1>
+      <p class="header-sub">Security Monitor</p>
+    </div>
+    <div class="header-right">
+      <span class="live-dot" id="liveDot"></span>
+      <span class="live-text" id="liveText">LIVE</span>
+      <span class="poll-time" id="pollTime"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── Snapshot card ──────────────────────────────────────────────────── -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-title">LATEST SNAPSHOT</span>
+        <span class="card-meta" id="cardMeta" hidden></span>
+      </div>
+
+      <div class="badge" id="badge" role="status" aria-live="polite">
+        <span class="spinner" id="badgeSpinner" hidden></span>
+        <span id="badgeText">IDLE</span>
+      </div>
+
+      <div class="image-container">
+        <img class="snapshot" id="snapshot" alt="Latest camera snapshot" hidden />
+
+        <div class="placeholder" id="placeholder">
+          <div class="placeholder-icon">📷</div>
+          <div class="placeholder-text">No snapshot yet</div>
+          <div class="placeholder-sub" id="placeholderSub">Waiting for motion trigger...</div>
+        </div>
+
+        <div id="corners" hidden>
+          <span class="corner corner-tl"></span>
+          <span class="corner corner-tr"></span>
+          <span class="corner corner-bl"></span>
+          <span class="corner corner-br"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Action buttons ─────────────────────────────────────────────────── -->
+    <div class="actions">
+      <button class="btn btn-authorise" id="btnAuthorise" type="button" disabled>
+        <span class="btn-icon">✓</span>
+        <span class="btn-label">AUTHORISE</span>
+      </button>
+      <button class="btn btn-deny" id="btnDeny" type="button" disabled>
+        <span class="btn-icon">✕</span>
+        <span class="btn-label">DENY</span>
+      </button>
+    </div>
+
+    <!-- ── Result banner ──────────────────────────────────────────────────── -->
+    <div class="banner" id="banner" role="status" hidden></div>
+
+    <!-- ── Event log ──────────────────────────────────────────────────────── -->
+    <section class="log-card">
+      <div class="log-title">EVENT LOG</div>
+      <div id="logList" aria-live="polite">
+        <div class="log-empty">No events yet.</div>
+      </div>
+    </section>
+
+    <!-- ── System info ────────────────────────────────────────────────────── -->
+    <div class="info-row">
+      <div class="info-item">
+        <div class="info-label">CHANNEL</div>
+        <div class="info-value" id="infoChannel">—</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">POLL</div>
+        <div class="info-value" id="infoPoll">—</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">ENTRY</div>
+        <div class="info-value" id="infoEntry">—</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ─── ThingSpeak config ────────────────────────────────────────────────────
+  var THINGSPEAK_CHANNEL_ID = "2718070";
+  var THINGSPEAK_READ_KEY   = "NG8D9YSZDAFI5HIO";
+  var THINGSPEAK_WRITE_KEY  = "V4UL3W0OTWOUYGK8";
+  var POLL_INTERVAL_MS      = 15000; // poll every 15 seconds
+
+  // ─── State ────────────────────────────────────────────────────────────────
+  // Plain module-scoped variables, so there is no render loop to guard against
+  // the way the RN version had to (its authStatus lived in a ref for that).
+  var imageUrl      = null;   // Cloudinary URL from field3
+  var captureTime   = "";
+  var entryId       = -1;
+  var authStatus    = "idle"; // "pending" | "authorised" | "denied" | "idle"
+  var isSending     = false;
+  var isConnected   = true;
+  var lastPollTime  = "";
+  var eventLog      = [];
+  var lastEntryId   = -1;
+
+  var STATUS_CONFIG = {
+    idle:       { color: "#4B5563", text: "IDLE",       bg: "#1F2937" },
+    pending:    { color: "#F59E0B", text: "AWAITING",   bg: "#292110" },
+    authorised: { color: "#10B981", text: "AUTHORISED", bg: "#0B2318" },
+    denied:     { color: "#EF4444", text: "DENIED",     bg: "#2A0E0E" }
+  };
+
+  var el = {
+    header:        document.getElementById("header"),
+    liveText:      document.getElementById("liveText"),
+    pollTime:      document.getElementById("pollTime"),
+    cardMeta:      document.getElementById("cardMeta"),
+    badge:         document.getElementById("badge"),
+    badgeSpinner:  document.getElementById("badgeSpinner"),
+    badgeText:     document.getElementById("badgeText"),
+    snapshot:      document.getElementById("snapshot"),
+    placeholder:   document.getElementById("placeholder"),
+    placeholderSub:document.getElementById("placeholderSub"),
+    corners:       document.getElementById("corners"),
+    btnAuthorise:  document.getElementById("btnAuthorise"),
+    btnDeny:       document.getElementById("btnDeny"),
+    banner:        document.getElementById("banner"),
+    logList:       document.getElementById("logList"),
+    infoChannel:   document.getElementById("infoChannel"),
+    infoPoll:      document.getElementById("infoPoll"),
+    infoEntry:     document.getElementById("infoEntry")
+  };
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+  function formatTime(iso) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return "--:--:--";
+      return d.toLocaleTimeString([], {
+        hour: "2-digit", minute: "2-digit", second: "2-digit"
+      });
+    } catch (e) {
+      return "--:--:--";
+    }
+  }
+
+  // field3 is documented as a Cloudinary https:// URL. Channel 2718070 is
+  // currently publishing plain sensor numbers there, so anything that is not
+  // an http(s) URL is treated as "no snapshot" rather than fed to <img>,
+  // which would otherwise render a permanently broken image.
+  function isImageUrl(value) {
+    return typeof value === "string" && /^https?:\/\/\S+$/i.test(value.trim());
+  }
+
+  function addLog(msg) {
+    var time = new Date().toLocaleTimeString([], {
+      hour: "2-digit", minute: "2-digit", second: "2-digit"
+    });
+    console.log("[UI LOG] " + msg);
+    eventLog = ["[" + time + "] " + msg].concat(eventLog).slice(0, 20);
+    renderLog();
+  }
+
+  // ─── Rendering ────────────────────────────────────────────────────────────
+  function renderConnection() {
+    el.header.classList.toggle("offline", !isConnected);
+    el.liveText.textContent = isConnected ? "LIVE" : "OFFLINE";
+    el.pollTime.textContent = lastPollTime ? "↻ " + lastPollTime : "";
+  }
+
+  function renderStatus() {
+    var cfg = STATUS_CONFIG[authStatus] || STATUS_CONFIG.idle;
+    el.badge.style.backgroundColor = cfg.bg;
+    el.badge.style.borderColor     = cfg.color;
+    el.badge.style.color           = cfg.color;
+    el.badgeText.textContent       = cfg.text;
+    el.badgeSpinner.hidden         = authStatus !== "pending";
+
+    // Result banner — shown for settled decisions only.
+    var settled = authStatus === "authorised" || authStatus === "denied";
+    el.banner.hidden = !settled;
+    if (settled) {
+      var granted = authStatus === "authorised";
+      el.banner.className = "banner " + (granted ? "banner-grant" : "banner-deny");
+      el.banner.textContent = granted
+        ? "🔓 Access granted — door will open"
+        : "🔒 Access denied — alarm triggered";
+    }
+  }
+
+  function renderSnapshot() {
+    var hasImage = imageUrl !== null;
+    el.snapshot.hidden    = !hasImage;
+    el.placeholder.hidden = hasImage;
+    el.corners.hidden     = !hasImage;
+
+    el.cardMeta.hidden = !(entryId > 0);
+    if (entryId > 0) {
+      el.cardMeta.textContent = "#" + entryId + " · " + captureTime;
+    }
+  }
+
+  function renderButtons() {
+    var canDecide = authStatus === "pending" && imageUrl !== null && !isSending;
+    el.btnAuthorise.disabled = !canDecide;
+    el.btnDeny.disabled      = !canDecide;
+
+    [el.btnAuthorise, el.btnDeny].forEach(function (btn) {
+      var icon  = btn.querySelector(".btn-icon");
+      var label = btn.querySelector(".btn-label");
+      var spin  = btn.querySelector(".spinner");
+      if (isSending) {
+        if (icon)  icon.hidden = true;
+        if (label) label.hidden = true;
+        if (!spin) {
+          spin = document.createElement("span");
+          spin.className = "spinner spinner-lg";
+          btn.appendChild(spin);
+        }
+      } else {
+        if (icon)  icon.hidden = false;
+        if (label) label.hidden = false;
+        if (spin)  spin.remove();
+      }
+    });
+  }
+
+  function renderLog() {
+    if (eventLog.length === 0) {
+      el.logList.innerHTML = '<div class="log-empty">No events yet.</div>';
+      return;
+    }
+    el.logList.textContent = "";
+    eventLog.forEach(function (entry, i) {
+      var row = document.createElement("div");
+      row.className = "log-entry" + (i === 0 ? " latest" : "");
+      row.textContent = entry; // textContent — never inject feed data as HTML
+      el.logList.appendChild(row);
+    });
+  }
+
+  function renderInfo() {
+    el.infoChannel.textContent = THINGSPEAK_CHANNEL_ID;
+    el.infoPoll.textContent    = POLL_INTERVAL_MS / 1000 + "s";
+    el.infoEntry.textContent   = entryId > 0 ? "#" + entryId : "—";
+  }
+
+  function showImage(url) {
+    // Restart the 500ms fade from zero on every new capture.
+    el.snapshot.classList.remove("visible");
+    el.snapshot.hidden = false;
+    el.snapshot.src = url;
+    void el.snapshot.offsetWidth; // force reflow so the transition replays
+    requestAnimationFrame(function () {
+      el.snapshot.classList.add("visible");
+    });
+  }
+
+  el.snapshot.addEventListener("error", function () {
+    if (!imageUrl) return;
+    addLog("⚠️ Snapshot failed to load: " + imageUrl);
+    imageUrl = null;
+    el.placeholderSub.textContent = "Image failed to load";
+    renderSnapshot();
+    renderButtons();
+  });
+
+  // ─── Poll ThingSpeak ──────────────────────────────────────────────────────
+  function pollFeed() {
+    var url = "https://api.thingspeak.com/channels/" + THINGSPEAK_CHANNEL_ID +
+              "/feeds/last.json?api_key=" + THINGSPEAK_READ_KEY;
+    console.log("[API POLL] Fetching latest feed from ThingSpeak...");
+
+    return fetch(url, { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) {
+          console.error("[API POLL] Error HTTP " + res.status);
+          throw new Error("HTTP " + res.status);
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        console.log("[API POLL] Success. Entry ID: " + data.entry_id +
+                    " | Field4 (Auth): " + data.field4);
+
+        isConnected  = true;
+        lastPollTime = formatTime(new Date().toISOString());
+        renderConnection();
+
+        if (!data.field3) return;
+
+        if (data.entry_id !== lastEntryId) {
+          // ── New entry arrived ──
+          lastEntryId = data.entry_id;
+          entryId     = data.entry_id;
+          captureTime = formatTime(data.created_at);
+
+          if (isImageUrl(data.field3)) {
+            imageUrl = data.field3.trim();
+            showImage(imageUrl);
+          } else {
+            imageUrl = null;
+            el.placeholderSub.textContent =
+              "field3 is not an image URL (got “" + data.field3 + "”)";
+            addLog("⚠️ Entry #" + data.entry_id +
+                   " — field3 is not a URL: " + data.field3);
+          }
+
+          var f4 = (data.field4 || "").trim();
+          if (f4 === "1") {
+            authStatus = "authorised";
+            addLog("Entry #" + data.entry_id + " — Already AUTHORISED");
+          } else if (f4 === "0") {
+            authStatus = "denied";
+            addLog("Entry #" + data.entry_id + " — Already DENIED");
+          } else {
+            // "-1" or null = pending
+            authStatus = "pending";
+            addLog("🚨 Entry #" + data.entry_id + " — New capture! Awaiting decision.");
+          }
+
+          renderSnapshot();
+          renderStatus();
+          renderButtons();
+          renderInfo();
+        } else {
+          // ── Same entry — check whether field4 was updated externally ──
+          var f4b = (data.field4 || "").trim();
+          if (f4b === "1" && authStatus !== "authorised") {
+            console.log("[AUTH] External update detected: AUTHORISED");
+            authStatus = "authorised";
+            renderStatus();
+            renderButtons();
+          } else if (f4b === "0" && authStatus !== "denied") {
+            console.log("[AUTH] External update detected: DENIED");
+            authStatus = "denied";
+            renderStatus();
+            renderButtons();
+          }
+        }
+      })
+      .catch(function (e) {
+        isConnected = false;
+        renderConnection();
+        addLog("⚠️ Poll error: " + e.message);
+      });
+  }
+
+  // ─── Write auth result to ThingSpeak ──────────────────────────────────────
+  function sendDecision(decision) {
+    if (isSending) return;
+    isSending = true;
+    renderButtons();
+
+    var actionStr = decision === 1 ? "AUTHORISE" : "DENY";
+    addLog("Sending " + actionStr + "...");
+    console.log("[AUTH] Initiating " + actionStr +
+                " action. Updating ThingSpeak field4 to " + decision);
+
+    var url = "https://api.thingspeak.com/update?api_key=" +
+              THINGSPEAK_WRITE_KEY + "&field4=" + decision;
+    console.log("[API WRITE] Sending GET request to ThingSpeak...");
+
+    fetch(url, { method: "GET", cache: "no-store" })
+      .then(function (res) {
+        return res.text().then(function (text) {
+          if (!res.ok || text === "0") {
+            console.error("[API WRITE] Error HTTP " + res.status + " | Response: " + text);
+            throw new Error("Failed to update ThingSpeak. Response: " + text +
+                            " (Possible rate limit, wait 15s)");
+          }
+          return text;
+        });
+      })
+      .then(function () {
+        authStatus = decision === 1 ? "authorised" : "denied";
+        console.log("[API WRITE] Success. Auth status updated to: " + authStatus);
+        addLog("✅ Decision sent — " + authStatus.toUpperCase());
+      })
+      .catch(function (e) {
+        console.error("[API WRITE] Exception: " + e.message);
+        window.alert("Error\n\nFailed to send decision: " + e.message);
+        addLog("❌ Send failed: " + e.message);
+      })
+      .then(function () {
+        isSending = false;
+        renderStatus();
+        renderButtons();
+      });
+  }
+
+  el.btnAuthorise.addEventListener("click", function () {
+    if (window.confirm("Confirm: Grant access to this person?")) sendDecision(1);
+  });
+
+  el.btnDeny.addEventListener("click", function () {
+    if (window.confirm("Confirm: Deny access and trigger alarm?")) sendDecision(0);
+  });
+
+  // ─── Boot ─────────────────────────────────────────────────────────────────
+  renderConnection();
+  renderStatus();
+  renderSnapshot();
+  renderButtons();
+  renderLog();
+  renderInfo();
+
+  pollFeed();
+  setInterval(pollFeed, POLL_INTERVAL_MS);
+})();
+</script>
+</body>
+</html>
